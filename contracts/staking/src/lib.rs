@@ -6,8 +6,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractimpl, contracttype, contracterror, token, 
-    Address, Env, String, Vec
+    contract, contracterror, contractimpl, contracttype, token, Address, Env, String, Vec,
 };
 
 /// Contract errors
@@ -104,9 +103,7 @@ impl StakingContract {
             total_pools_created: 0,
         };
 
-        env.storage()
-            .persistent()
-            .set(&StorageKey::Config, &config);
+        env.storage().persistent().set(&StorageKey::Config, &config);
     }
 
     /// Create a new staking pool (admin only)
@@ -118,11 +115,9 @@ impl StakingContract {
         apy: u64,
         lock_period: u64,
     ) -> u64 {
-        let mut config: ContractConfig = env.storage()
-            .persistent()
-            .get(&StorageKey::Config)
-            .unwrap();
-        
+        let mut config: ContractConfig =
+            env.storage().persistent().get(&StorageKey::Config).unwrap();
+
         config.admin.require_auth();
 
         let pool_id = config.total_pools_created + 1;
@@ -148,9 +143,7 @@ impl StakingContract {
 
         // Update config
         config.total_pools_created = pool_id;
-        env.storage()
-            .persistent()
-            .set(&StorageKey::Config, &config);
+        env.storage().persistent().set(&StorageKey::Config, &config);
 
         pool_id
     }
@@ -159,12 +152,10 @@ impl StakingContract {
     pub fn stake(env: Env, user: Address, pool_id: u64, amount: i128) {
         user.require_auth();
 
-        let config: ContractConfig = env.storage()
-            .persistent()
-            .get(&StorageKey::Config)
-            .unwrap();
+        let config: ContractConfig = env.storage().persistent().get(&StorageKey::Config).unwrap();
 
-        let mut pool: StakingPool = env.storage()
+        let mut pool: StakingPool = env
+            .storage()
             .persistent()
             .get(&StorageKey::Pool(pool_id))
             .unwrap();
@@ -186,7 +177,8 @@ impl StakingContract {
 
         // Get or create user stake
         let stake_key = StorageKey::UserStake(user.clone(), pool_id);
-        let mut user_stake = env.storage()
+        let mut user_stake = env
+            .storage()
             .persistent()
             .get(&stake_key)
             .unwrap_or(UserStake {
@@ -218,37 +210,37 @@ impl StakingContract {
 
         // Store updated data
         env.storage().persistent().set(&stake_key, &user_stake);
-        env.storage().persistent().set(&StorageKey::Pool(pool_id), &pool);
+        env.storage()
+            .persistent()
+            .set(&StorageKey::Pool(pool_id), &pool);
 
         // Update user's total staked amount
         let total_staked_key = StorageKey::UserTotalStaked(user.clone());
-        let mut user_total_staked: i128 = env.storage()
+        let mut user_total_staked: i128 = env
+            .storage()
             .persistent()
             .get(&total_staked_key)
             .unwrap_or(0);
         user_total_staked += amount;
-        env.storage().persistent().set(&total_staked_key, &user_total_staked);
+        env.storage()
+            .persistent()
+            .set(&total_staked_key, &user_total_staked);
     }
 
     /// Unstake tokens from a pool
     pub fn unstake(env: Env, user: Address, pool_id: u64, amount: i128) {
         user.require_auth();
 
-        let config: ContractConfig = env.storage()
-            .persistent()
-            .get(&StorageKey::Config)
-            .unwrap();
+        let config: ContractConfig = env.storage().persistent().get(&StorageKey::Config).unwrap();
 
-        let mut pool: StakingPool = env.storage()
+        let mut pool: StakingPool = env
+            .storage()
             .persistent()
             .get(&StorageKey::Pool(pool_id))
             .unwrap();
 
         let stake_key = StorageKey::UserStake(user.clone(), pool_id);
-        let mut user_stake: UserStake = env.storage()
-            .persistent()
-            .get(&stake_key)
-            .unwrap();
+        let mut user_stake: UserStake = env.storage().persistent().get(&stake_key).unwrap();
 
         if amount > user_stake.amount {
             panic!("Insufficient staked balance");
@@ -262,7 +254,8 @@ impl StakingContract {
         }
 
         // Calculate final rewards
-        let pending_rewards = Self::calculate_pending_rewards(&env, &user_stake, &pool, current_time);
+        let pending_rewards =
+            Self::calculate_pending_rewards(&env, &user_stake, &pool, current_time);
         user_stake.pending_rewards += pending_rewards;
 
         // Transfer tokens back to user
@@ -278,42 +271,43 @@ impl StakingContract {
 
         // Store updated data
         env.storage().persistent().set(&stake_key, &user_stake);
-        env.storage().persistent().set(&StorageKey::Pool(pool_id), &pool);
+        env.storage()
+            .persistent()
+            .set(&StorageKey::Pool(pool_id), &pool);
 
         // Update user's total staked amount
         let total_staked_key = StorageKey::UserTotalStaked(user.clone());
-        let mut user_total_staked: i128 = env.storage()
+        let mut user_total_staked: i128 = env
+            .storage()
             .persistent()
             .get(&total_staked_key)
             .unwrap_or(0);
         user_total_staked -= amount;
-        env.storage().persistent().set(&total_staked_key, &user_total_staked);
+        env.storage()
+            .persistent()
+            .set(&total_staked_key, &user_total_staked);
     }
 
     /// Claim accumulated rewards
     pub fn claim_rewards(env: Env, user: Address, pool_id: u64) -> i128 {
         user.require_auth();
 
-        let config: ContractConfig = env.storage()
-            .persistent()
-            .get(&StorageKey::Config)
-            .unwrap();
+        let config: ContractConfig = env.storage().persistent().get(&StorageKey::Config).unwrap();
 
-        let pool: StakingPool = env.storage()
+        let pool: StakingPool = env
+            .storage()
             .persistent()
             .get(&StorageKey::Pool(pool_id))
             .unwrap();
 
         let stake_key = StorageKey::UserStake(user.clone(), pool_id);
-        let mut user_stake: UserStake = env.storage()
-            .persistent()
-            .get(&stake_key)
-            .unwrap();
+        let mut user_stake: UserStake = env.storage().persistent().get(&stake_key).unwrap();
 
         let current_time = env.ledger().timestamp();
 
         // Calculate pending rewards
-        let pending_rewards = Self::calculate_pending_rewards(&env, &user_stake, &pool, current_time);
+        let pending_rewards =
+            Self::calculate_pending_rewards(&env, &user_stake, &pool, current_time);
         let total_rewards = user_stake.pending_rewards + pending_rewards;
 
         if total_rewards <= 0 {
@@ -352,20 +346,22 @@ impl StakingContract {
 
     /// Calculate pending rewards for a user's stake
     pub fn get_pending_rewards(env: Env, user: Address, pool_id: u64) -> i128 {
-        let pool = env.storage()
+        let pool = env
+            .storage()
             .persistent()
             .get::<StorageKey, StakingPool>(&StorageKey::Pool(pool_id))
             .unwrap();
 
         let stake_key = StorageKey::UserStake(user, pool_id);
-        let user_stake = env.storage()
+        let user_stake = env
+            .storage()
             .persistent()
             .get::<StorageKey, UserStake>(&stake_key)
             .unwrap();
 
         let current_time = env.ledger().timestamp();
         let pending = Self::calculate_pending_rewards(&env, &user_stake, &pool, current_time);
-        
+
         user_stake.pending_rewards + pending
     }
 
@@ -388,14 +384,16 @@ impl StakingContract {
         // Calculate rewards: (amount * apy * time_elapsed) / (365 * 24 * 3600 * 10000)
         // APY is in basis points (10000 = 100%)
         let seconds_per_year = 365u64 * 24 * 3600;
-        let rewards = (user_stake.amount * pool.apy as i128 * time_elapsed as i128) / (seconds_per_year as i128 * 10000);
+        let rewards = (user_stake.amount * pool.apy as i128 * time_elapsed as i128)
+            / (seconds_per_year as i128 * 10000);
 
         rewards
     }
 
     /// Get user's total voting power
     pub fn get_voting_power(env: Env, user: Address) -> i128 {
-        let total_staked: i128 = env.storage()
+        let total_staked: i128 = env
+            .storage()
             .persistent()
             .get(&StorageKey::UserTotalStaked(user))
             .unwrap_or(0);
@@ -404,13 +402,16 @@ impl StakingContract {
     }
 
     /// Update contract configuration (admin only)
-    pub fn update_config(env: Env, admin: Address, new_admin: Option<Address>, is_paused: Option<bool>) {
+    pub fn update_config(
+        env: Env,
+        admin: Address,
+        new_admin: Option<Address>,
+        is_paused: Option<bool>,
+    ) {
         admin.require_auth();
 
-        let mut config: ContractConfig = env.storage()
-            .persistent()
-            .get(&StorageKey::Config)
-            .unwrap();
+        let mut config: ContractConfig =
+            env.storage().persistent().get(&StorageKey::Config).unwrap();
 
         if admin != config.admin {
             panic!("Unauthorized");
@@ -428,15 +429,16 @@ impl StakingContract {
 
     /// Get total value locked in the contract
     pub fn get_total_value_locked(env: Env) -> i128 {
-        let config: ContractConfig = env.storage()
-            .persistent()
-            .get(&StorageKey::Config)
-            .unwrap();
+        let config: ContractConfig = env.storage().persistent().get(&StorageKey::Config).unwrap();
 
         let mut total_tvl = 0i128;
 
         for pool_id in 1..=config.total_pools_created {
-            if let Some(pool) = env.storage().persistent().get::<StorageKey, StakingPool>(&StorageKey::Pool(pool_id)) {
+            if let Some(pool) = env
+                .storage()
+                .persistent()
+                .get::<StorageKey, StakingPool>(&StorageKey::Pool(pool_id))
+            {
                 total_tvl += pool.total_staked;
             }
         }
@@ -454,15 +456,15 @@ mod test {
     fn test_initialize() {
         let env = Env::default();
         env.mock_all_auths();
-        
+
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
-        
+
         let contract_id = env.register(StakingContract, ());
         let client = StakingContractClient::new(&env, &contract_id);
-        
+
         client.initialize(&admin, &token);
-        
+
         let config = client.get_config().unwrap();
         assert_eq!(config.admin, admin);
         assert_eq!(config.token_address, token);
@@ -473,15 +475,15 @@ mod test {
     fn test_create_pool() {
         let env = Env::default();
         env.mock_all_auths();
-        
+
         let admin = Address::generate(&env);
         let token = Address::generate(&env);
-        
+
         let contract_id = env.register(StakingContract, ());
         let client = StakingContractClient::new(&env, &contract_id);
-        
+
         client.initialize(&admin, &token);
-        
+
         let pool_id = client.create_pool(
             &String::from_str(&env, "Test Pool"),
             &(100 * 10_000_000),
@@ -489,9 +491,9 @@ mod test {
             &1000,
             &(30 * 86400),
         );
-        
+
         assert_eq!(pool_id, 1);
-        
+
         let pool = client.get_pool(&pool_id).unwrap();
         assert_eq!(pool.pool_id, 1);
         assert_eq!(pool.min_stake, 100 * 10_000_000);
