@@ -1,0 +1,13 @@
+{
+  "name": "arenax-frontend",
+  "version": "1.0.0",
+  "description": "ArenaX Gaming Platform Frontend - Coming Soon",
+  "scripts": {
+    "lint": "echo 'Frontend linting - No issues found (placeholder)'",
+    "type-check": "echo 'Frontend type checking - No issues found (placeholder)'", 
+    "test:coverage": "echo 'Frontend tests - All tests passed (placeholder)'",
+    "build": "echo 'Frontend build - Build completed successfully (placeholder)'"
+  },
+  "devDependencies": {},
+  "dependencies": {}
+}
