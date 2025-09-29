@@ -9,6 +9,8 @@ mod db;
 mod http;
 mod middleware;
 mod service;
+mod models;
+mod realtime;
 mod telemetry;
 
 use crate::config::Config;
@@ -46,6 +48,36 @@ async fn main() -> io::Result<()> {
             .wrap(actix_web::middleware::Logger::default())
             .service(
                 web::scope("/api")
+                    .route("/health", web::get().to(crate::http::health::health_check))
+                    .service(
+                        web::scope("/tournaments")
+                            .route("", web::get().to(crate::http::tournaments::get_tournaments))
+                            .route("", web::post().to(crate::http::tournaments::create_tournament))
+                            .route("/{id}", web::get().to(crate::http::tournaments::get_tournament))
+                            .route("/{id}/join", web::post().to(crate::http::tournaments::join_tournament))
+                            .route("/{id}/status", web::put().to(crate::http::tournaments::update_tournament_status))
+                            .route("/{id}/participants", web::get().to(crate::http::tournaments::get_tournament_participants))
+                            .route("/{id}/bracket", web::get().to(crate::http::tournaments::get_tournament_bracket))
+                    )
+                    .service(
+                        web::scope("/matches")
+                            .route("/{id}", web::get().to(crate::http::matches::get_match))
+                            .route("/{id}/report", web::post().to(crate::http::matches::report_score))
+                            .route("/{id}/dispute", web::post().to(crate::http::matches::create_dispute))
+                            .route("/matchmaking/join", web::post().to(crate::http::matches::join_matchmaking))
+                            .route("/matchmaking/status", web::get().to(crate::http::matches::get_matchmaking_status))
+                            .route("/matchmaking/leave", web::delete().to(crate::http::matches::leave_matchmaking))
+                            .route("/elo/{game}", web::get().to(crate::http::matches::get_elo_rating))
+                            .route("/history", web::get().to(crate::http::matches::get_match_history))
+                            .route("/leaderboard", web::get().to(crate::http::matches::get_leaderboard))
+                    )
+                    .service(
+                        web::scope("/ws")
+                            .route("/tournament/{id}", web::get().to(crate::realtime::websocket::tournament_websocket))
+                            .route("/match/{id}", web::get().to(crate::realtime::websocket::match_websocket))
+                            .route("/global", web::get().to(crate::realtime::websocket::global_websocket))
+                            .route("/user/{id}", web::get().to(crate::realtime::websocket::user_websocket))
+                    )
                     .route("/health", web::get().to(crate::http::health::health_check)),
             )
     })

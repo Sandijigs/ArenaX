@@ -5,8 +5,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 #[allow(dead_code)]
 pub enum ApiError {
-    #[error("Internal server error")]
-    InternalServerError,
+    #[error("Internal server error: {0}")]
+    InternalServerError(String),
 
     #[error("Bad request: {0}")]
     BadRequest(String),
@@ -14,11 +14,11 @@ pub enum ApiError {
     #[error("Unauthorized")]
     Unauthorized,
 
-    #[error("Forbidden")]
-    Forbidden,
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 
-    #[error("Not found")]
-    NotFound,
+    #[error("Not found: {0}")]
+    NotFound(String),
 
     #[error("Conflict: {0}")]
     Conflict(String),
@@ -52,8 +52,8 @@ impl ResponseError for ApiError {
             ),
             ApiError::BadRequest(_) => (actix_web::http::StatusCode::BAD_REQUEST, self.to_string()),
             ApiError::Unauthorized => (actix_web::http::StatusCode::UNAUTHORIZED, self.to_string()),
-            ApiError::Forbidden => (actix_web::http::StatusCode::FORBIDDEN, self.to_string()),
-            ApiError::NotFound => (actix_web::http::StatusCode::NOT_FOUND, self.to_string()),
+            ApiError::Forbidden(_) => (actix_web::http::StatusCode::FORBIDDEN, self.to_string()),
+            ApiError::NotFound(_) => (actix_web::http::StatusCode::NOT_FOUND, self.to_string()),
             ApiError::Conflict(_) => (actix_web::http::StatusCode::CONFLICT, self.to_string()),
             ApiError::DatabaseError(_) => (
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,

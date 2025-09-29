@@ -1,8 +1,12 @@
 use crate::api_error::ApiError;
+use crate::realtime::RedisClient;
 use crate::db::DbPool;
 use actix_web::{web, HttpResponse, Result};
 
-pub async fn health_check(db_pool: web::Data<DbPool>) -> Result<HttpResponse, ApiError> {
+pub async fn health_check(
+    db_pool: web::Data<DbPool>,
+    redis_client: Option<web::Data<RedisClient>>,
+) -> Result<HttpResponse, ApiError> {
     // Check database connectivity
     let db_health = match crate::db::health_check(&db_pool).await {
         Ok(_) => {
@@ -23,11 +27,28 @@ pub async fn health_check(db_pool: web::Data<DbPool>) -> Result<HttpResponse, Ap
         }
     };
 
-    // TODO: Check Redis connectivity
-    let redis_health = serde_json::json!({
-        "status": "not_implemented",
-        "connection": "unknown"
-    });
+    // Check Redis connection
+    let redis_health = if let Some(redis) = redis_client {
+        match redis.get_connection().await {
+            Ok(_) => serde_json::json!({
+                "status": "healthy",
+                "connection": "connected"
+            }),
+            Err(e) => {
+                tracing::error!("Redis health check failed: {:?}", e);
+                serde_json::json!({
+                    "status": "unhealthy",
+                    "connection": "disconnected",
+                    "error": e.to_string()
+                })
+            }
+        }
+    } else {
+        serde_json::json!({
+            "status": "not_configured",
+            "connection": "not_configured"
+        })
+    };
 
     // TODO: Check Stellar network connectivity
     let stellar_health = serde_json::json!({
@@ -36,7 +57,7 @@ pub async fn health_check(db_pool: web::Data<DbPool>) -> Result<HttpResponse, Ap
     });
 
     // Determine overall health
-    let is_healthy = db_health["status"] == "healthy";
+    let is_healthy = db_health["status"] == "healthy" && redis_health["status"] != "unhealthy";
 
     let response = serde_json::json!({
         "status": if is_healthy { "healthy" } else { "unhealthy" },

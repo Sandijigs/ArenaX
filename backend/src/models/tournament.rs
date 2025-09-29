@@ -29,6 +29,10 @@ pub struct Tournament {
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    // Stellar integration fields
+    pub stellar_prize_pool_account: Option<String>,
+    pub entry_fee_currency: Option<String>,
+    pub prize_pool_currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +56,7 @@ impl std::fmt::Display for TournamentType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TournamentStatus {
+    Draft,
     Upcoming,
     RegistrationOpen,
     RegistrationClosed,
@@ -63,6 +68,7 @@ pub enum TournamentStatus {
 impl std::fmt::Display for TournamentStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            TournamentStatus::Draft => write!(f, "draft"),
             TournamentStatus::Upcoming => write!(f, "upcoming"),
             TournamentStatus::RegistrationOpen => write!(f, "registration_open"),
             TournamentStatus::RegistrationClosed => write!(f, "registration_closed"),
@@ -111,6 +117,7 @@ pub struct CreateTournamentRequest {
     pub end_time: Option<DateTime<Utc>>,
     pub rules: Option<serde_json::Value>,
     pub metadata: Option<serde_json::Value>,
+    pub entry_fee_currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -156,6 +163,9 @@ pub struct TournamentResponse {
     pub created_by: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub stellar_prize_pool_account: Option<String>,
+    pub entry_fee_currency: Option<String>,
+    pub prize_pool_currency: Option<String>,
 }
 
 impl From<Tournament> for TournamentResponse {
@@ -183,6 +193,9 @@ impl From<Tournament> for TournamentResponse {
             created_by: tournament.created_by,
             created_at: tournament.created_at,
             updated_at: tournament.updated_at,
+            stellar_prize_pool_account: tournament.stellar_prize_pool_account,
+            entry_fee_currency: tournament.entry_fee_currency,
+            prize_pool_currency: tournament.prize_pool_currency,
         }
     }
 }
@@ -197,6 +210,13 @@ pub struct TournamentParticipant {
     pub seed_number: Option<i32>,
     pub payment_status: String,
     pub payment_transaction_id: Option<Uuid>,
+    pub stellar_entry_transaction_id: Option<String>,
+    pub current_round: Option<i32>,
+    pub eliminated_at: Option<DateTime<Utc>>,
+    pub final_rank: Option<i32>,
+    pub prize_amount: Option<Decimal>,
+    pub prize_currency: Option<String>,
+    pub stellar_payout_transaction_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -206,6 +226,8 @@ pub enum ParticipantStatus {
     Registered,
     Confirmed,
     CheckedIn,
+    Active,
+    Eliminated,
     Disqualified,
     Withdrawn,
 }
@@ -216,6 +238,8 @@ impl std::fmt::Display for ParticipantStatus {
             ParticipantStatus::Registered => write!(f, "registered"),
             ParticipantStatus::Confirmed => write!(f, "confirmed"),
             ParticipantStatus::CheckedIn => write!(f, "checked_in"),
+            ParticipantStatus::Active => write!(f, "active"),
+            ParticipantStatus::Eliminated => write!(f, "eliminated"),
             ParticipantStatus::Disqualified => write!(f, "disqualified"),
             ParticipantStatus::Withdrawn => write!(f, "withdrawn"),
         }
@@ -234,4 +258,31 @@ pub struct TournamentStanding {
     pub matches_played: Option<i64>,
     pub total_score: Option<Decimal>,
     pub current_rank: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct PrizePool {
+    pub id: Uuid,
+    pub tournament_id: Uuid,
+    pub total_amount: Decimal,
+    pub currency: String,
+    pub stellar_account: String,
+    pub stellar_asset_code: Option<String>,
+    pub distribution_percentages: String, // JSON array of percentages for each rank
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct JoinTournamentRequest {
+    pub payment_method: String, // "fiat" or "arenax_token"
+    pub payment_reference: Option<String>, // For fiat payments
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TournamentListResponse {
+    pub tournaments: Vec<TournamentResponse>,
+    pub total: i64,
+    pub page: i32,
+    pub per_page: i32,
 }

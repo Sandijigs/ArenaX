@@ -25,6 +25,9 @@ pub struct User {
     pub banned_until: Option<DateTime<Utc>>,
     pub reputation_score: i32,
     pub total_earnings: Decimal,
+    pub device_fingerprint: Option<String>,
+    pub stellar_account_id: Option<String>,
+    pub stellar_public_key: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -69,6 +72,7 @@ pub struct UserResponse {
     pub is_verified: bool,
     pub reputation_score: i32,
     pub total_earnings: Decimal,
+    pub stellar_public_key: Option<String>,
 }
 
 impl From<User> for UserResponse {
@@ -86,6 +90,7 @@ impl From<User> for UserResponse {
             is_verified: user.is_verified,
             reputation_score: user.reputation_score,
             total_earnings: user.total_earnings,
+            stellar_public_key: user.stellar_public_key,
         }
     }
 }
