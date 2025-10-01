@@ -1,4 +1,4 @@
-import withPWA from "next-pwa";
+import withPWA, { type PWAConfig } from "next-pwa";
 
 const pwaConfig = {
   dest: "public",
@@ -7,14 +7,15 @@ const pwaConfig = {
   disable: process.env.NODE_ENV === "development",
   buildExcludes: [/app-build-manifest\.json$/],
   sw: "sw.js",
+  fallbacks: {
+    document: "/offline",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any,
 };
 
 const nextConfig = withPWA(pwaConfig)({
   // ...other Next.js config options
-  fallbacks: {
-    document: "/offline", // Fallback for page requests
-    output: "export",
-  },
+  reactStrictMode: true,
 });
 
 export default nextConfig;
