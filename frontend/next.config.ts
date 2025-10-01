@@ -13,6 +13,7 @@ const nextConfig = withPWA(pwaConfig)({
   // ...other Next.js config options
   fallbacks: {
     document: "/offline", // Fallback for page requests
+    output: "export",
   },
 });
 
