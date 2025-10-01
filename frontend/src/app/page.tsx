@@ -1,5 +1,6 @@
 "use client";
 
+import InstallPWAButton from "@/components/InstallPWAButton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, Menu } from "lucide-react";
@@ -87,6 +88,9 @@ export default function Home() {
           >
             Join ArenaX <ArrowRight className="ml-2 h-5 w-5" />
           </Button>
+          <div className="mt-4">
+            <InstallPWAButton />
+          </div>
         </div>
       </section>
 
