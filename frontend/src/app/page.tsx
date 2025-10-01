@@ -1,76 +1,20 @@
 "use client";
 
-import InstallPWAButton from "@/components/InstallPWAButton";
+import Footer from "@/components/layout/Footer";
+import Header from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, Menu } from "lucide-react";
-import Image from "next/image";
-import { useState } from "react";
+// import Image from "next/image";
+// import { useState } from "react";
 
 export default function Home() {
-  const [menuOpen, setMenuOpen] = useState(false);
+  // const [menuOpen, setMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col">
       {/* Header */}
-      <header className="w-full border-b border-green-500/30">
-        <nav className="container mx-auto flex items-center justify-between py-4 px-4">
-          {/* Logo */}
-          <div className="flex items-center gap-2">
-            <Image
-              src="/icon-192x192.png"
-              alt="ArenaX Logo"
-              width={36}
-              height={36}
-            />
-            <span className="text-xl md:text-2xl font-bold text-green-500">
-              ArenaX
-            </span>
-          </div>
-
-          {/* Desktop Nav */}
-          <div className="hidden md:flex gap-4">
-            <Button variant="ghost" className="text-white hover:text-green-400">
-              Features
-            </Button>
-            <Button variant="ghost" className="text-white hover:text-green-400">
-              Pricing
-            </Button>
-            <Button variant="ghost" className="text-white hover:text-green-400">
-              About
-            </Button>
-            <Button className="bg-green-500 hover:bg-green-600 text-black font-semibold">
-              Get Started
-            </Button>
-          </div>
-
-          {/* Mobile Menu Toggle */}
-          <button
-            className="md:hidden p-2 text-green-500"
-            onClick={() => setMenuOpen(!menuOpen)}
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-        </nav>
-
-        {/* Mobile Menu */}
-        {menuOpen && (
-          <div className="md:hidden flex flex-col px-4 pb-4 gap-2 border-t border-green-500/30 bg-black">
-            <Button variant="ghost" className="text-white hover:text-green-400">
-              Features
-            </Button>
-            <Button variant="ghost" className="text-white hover:text-green-400">
-              Pricing
-            </Button>
-            <Button variant="ghost" className="text-white hover:text-green-400">
-              About
-            </Button>
-            <Button className="bg-green-500 hover:bg-green-600 text-black font-semibold">
-              Get Started
-            </Button>
-          </div>
-        )}
-      </header>
+      <Header />
 
       {/* Hero Section */}
       <section className="flex-1 flex items-center justify-center text-center px-6 py-12">
@@ -88,9 +32,6 @@ export default function Home() {
           >
             Join ArenaX <ArrowRight className="ml-2 h-5 w-5" />
           </Button>
-          <div className="mt-4">
-            <InstallPWAButton />
-          </div>
         </div>
       </section>
 
@@ -136,9 +77,7 @@ export default function Home() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-green-500/30 py-6 text-center text-gray-400 text-sm md:text-base">
-        <p>© {new Date().getFullYear()} ArenaX. All rights reserved.</p>
-      </footer>
+      <Footer />
     </div>
   );
 }
