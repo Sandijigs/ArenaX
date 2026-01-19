@@ -112,53 +112,36 @@ Implement comprehensive authentication system with JWT tokens.
 
 ### Smart Contracts Foundation
 
-#### Issue #4: ArenaX Token Contract
+#### Issue #4: Example Contract Setup
 **Labels:** 📄 contracts, 🔥 critical
 
 **Description:**
-Implement the core ArenaX token smart contract for the platform economy.
+Set up the Soroban smart contract development environment with a working example contract.
 
 **Requirements:**
-- ERC-20 compatible token implementation
-- Minting capabilities for platform rewards
-- Burning mechanisms for fees
-- Transfer restrictions for compliance
-- Admin functions for token management
-- Events for all token operations
+- Soroban SDK installation and configuration
+- Example contract with basic functionality
+- Contract testing framework
+- Deployment scripts for Stellar testnet
+- Event emission and state management
+- Proper error handling and validation
+
+**Example Contract Features:**
+- Contract initialization
+- Persistent storage operations
+- Event logging
+- Access control (admin functions)
+- Counter functionality for demonstration
 
 **Acceptance Criteria:**
-- Token deploys successfully on Stellar testnet
-- Basic transfer functionality works
-- Admin controls function properly
-- All events are emitted correctly
-- Unit tests pass with 100% coverage
+- Example contract compiles successfully
+- Contract deploys to Stellar testnet
+- All functions work as expected
+- Unit tests pass with good coverage
+- Development workflow is established
 
 **Dependencies:** None
 **Estimated Effort:** 2-3 days
-
-#### Issue #5: Tournament Manager Contract
-**Labels:** 📄 contracts, 🎯 tournaments, 🔥 critical
-
-**Description:**
-Smart contract for tournament creation, management, and prize distribution.
-
-**Requirements:**
-- Tournament creation with stake amounts
-- Participant registration and management
-- Bracket generation and progression
-- Winner determination and prize distribution
-- Tournament state management
-- Fee collection and platform revenue
-
-**Acceptance Criteria:**
-- Tournaments can be created on-chain
-- Participants can join tournaments
-- Bracket progression works correctly
-- Prizes are distributed automatically
-- Contract state is properly managed
-
-**Dependencies:** #4
-**Estimated Effort:** 4-5 days
 
 ### Frontend Foundation
 
@@ -408,42 +391,44 @@ Add analytics and insights for tournament performance.
 
 ### Smart Contract Extensions
 
-#### Issue #16: Escrow Contract for Prize Pools
-**Labels:** 📄 contracts, 🎯 tournaments, 📋 medium
-
-**Description:**
-Implement escrow contract for secure prize pool management.
-
-**Requirements:**
-- Tournament stake collection
-- Secure fund holding
-- Automated prize distribution
-- Refund mechanisms for cancellations
-
-**Acceptance Criteria:**
-- Funds are held securely
-- Prizes distribute automatically
-- Refunds work for cancellations
-
-**Dependencies:** #4, #5
-**Estimated Effort:** 3-4 days
-
-#### Issue #17: Staking Contract
+#### Issue #16: Token Contract Implementation
 **Labels:** 📄 contracts, 📋 medium
 
 **Description:**
-Implement staking contract for platform governance and rewards.
+Implement ERC-20 compatible token contract for the platform economy.
 
 **Requirements:**
-- Token staking functionality
-- Reward distribution
-- Governance voting power
-- Unstaking with lock periods
+- Standard token functionality (transfer, approve, allowance)
+- Minting and burning capabilities
+- Admin controls for token management
+- Event emission for all operations
 
 **Acceptance Criteria:**
-- Staking works correctly
-- Rewards calculate accurately
-- Governance integration works
+- Token deploys successfully on testnet
+- All ERC-20 functions work correctly
+- Admin controls function properly
+- Events are emitted for transparency
+
+**Dependencies:** #4
+**Estimated Effort:** 3-4 days
+
+#### Issue #17: Tournament Escrow Contract
+**Labels:** 📄 contracts, 🎯 tournaments, 📋 medium
+
+**Description:**
+Implement secure escrow system for tournament prize pools and entry fees.
+
+**Requirements:**
+- Tournament stake collection and holding
+- Automated prize distribution to winners
+- Refund mechanisms for cancelled tournaments
+- Platform fee collection
+
+**Acceptance Criteria:**
+- Funds are held securely during tournaments
+- Winners receive prizes automatically
+- Refunds work for cancellations
+- All transactions are auditable
 
 **Dependencies:** #4
 **Estimated Effort:** 4-5 days
