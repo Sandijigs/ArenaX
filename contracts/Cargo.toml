@@ -1,12 +1,6 @@
 [workspace]
 members = [
-    "arenax-token",
-    "escrow",
-    "tournament-manager",
-    "prize-distribution",
-    "staking",
-    "reputation",
-    "example"
+    "example-contract"
 ]
 
 [workspace.dependencies]
