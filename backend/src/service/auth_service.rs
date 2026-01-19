@@ -3,7 +3,7 @@ use crate::db::DbPool;
 use crate::models::user::{User, CreateUserRequest, LoginRequest, AuthResponse, UserProfile};
 use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Utc, Duration};
-use jsonwebtoken::{encode, decode, Header, Algorithm, Validation, EncodingKey, DecodingKey};
+use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
 use serde::{Deserialize, Serialize};
 use sqlx::types::Uuid;
 use std::sync::Arc;
