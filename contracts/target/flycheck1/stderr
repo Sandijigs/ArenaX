@@ -1,4 +1,0 @@
-error: failed to parse manifest at `/Users/ew/ArenaX/contracts/Cargo.toml`
-
-Caused by:
-  soroban-env-host is optional, but workspace dependencies cannot be optional
