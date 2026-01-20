@@ -1,15 +1,13 @@
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Wallet {
     pub id: Uuid,
     pub user_id: Uuid,
     pub stellar_address: String,
-    pub balance: Decimal,
+    pub balance: i64, // TODO: Use Decimal when rust_decimal is added
     pub currency: String,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
@@ -21,7 +19,7 @@ pub struct WalletTransaction {
     pub id: Uuid,
     pub wallet_id: Uuid,
     pub transaction_type: String,
-    pub amount: Decimal,
+    pub amount: i64, // TODO: Use Decimal when rust_decimal is added
     pub currency: String,
     pub description: String,
     pub stellar_transaction_hash: Option<String>,

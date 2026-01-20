@@ -4,8 +4,6 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
-    pub jwt: JwtConfig,
-    pub stellar: StellarConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,25 +18,10 @@ pub struct DatabaseConfig {
     pub max_connections: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JwtConfig {
-    pub secret: String,
-    pub expiration_hours: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StellarConfig {
-    pub network_url: String,
-    pub network_passphrase: String,
-}
-
 impl Config {
-    pub fn from_env() -> Result<Self, config::ConfigError> {
-        let settings = config::Config::builder()
-            .add_source(config::Environment::default().separator("__"))
-            .build()?;
-
-        settings.try_deserialize()
+    pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
+        // TODO: Implement environment-based configuration
+        Ok(Self::default())
     }
 }
 
@@ -52,14 +35,6 @@ impl Default for Config {
             database: DatabaseConfig {
                 url: "postgres://localhost/arenax".to_string(),
                 max_connections: 10,
-            },
-            jwt: JwtConfig {
-                secret: "your-secret-key".to_string(),
-                expiration_hours: 24,
-            },
-            stellar: StellarConfig {
-                network_url: "https://horizon-testnet.stellar.org".to_string(),
-                network_passphrase: "Test SDF Network ; September 2015".to_string(),
             },
         }
     }

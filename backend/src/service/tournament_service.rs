@@ -1,7 +1,7 @@
 use crate::api_error::ApiError;
 use crate::db::DbPool;
 use crate::models::tournament::{Tournament, CreateTournamentRequest};
-use sqlx::types::Uuid;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct TournamentService {
@@ -15,27 +15,26 @@ impl TournamentService {
 
     pub async fn create_tournament(
         &self,
-        creator_id: Uuid,
-        request: CreateTournamentRequest,
+        _creator_id: Uuid,
+        _request: CreateTournamentRequest,
     ) -> Result<Tournament, ApiError> {
-        // TODO: Implement tournament creation
-        // This is a placeholder implementation
+        // TODO: Implement tournament creation with database
         Err(ApiError::internal_error("Tournament service not yet implemented"))
     }
 
     pub async fn get_tournaments(
         &self,
-        user_id: Option<Uuid>,
-        page: i32,
-        per_page: i32,
-        status: Option<String>,
-        game_type: Option<String>,
+        _user_id: Option<Uuid>,
+        _page: i32,
+        _per_page: i32,
+        _status: Option<String>,
+        _game_type: Option<String>,
     ) -> Result<Vec<Tournament>, ApiError> {
-        // TODO: Implement tournament listing
+        // TODO: Implement tournament listing with filters
         Ok(vec![])
     }
 
-    pub async fn get_tournament(&self, id: Uuid) -> Result<Tournament, ApiError> {
+    pub async fn get_tournament(&self, _id: Uuid) -> Result<Tournament, ApiError> {
         // TODO: Implement tournament retrieval
         Err(ApiError::not_found("Tournament not found"))
     }

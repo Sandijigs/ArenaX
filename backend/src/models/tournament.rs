@@ -1,19 +1,16 @@
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 use uuid::Uuid;
-use validator::Validate;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tournament {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
     pub game_type: String,
     pub tournament_type: String,
-    pub entry_fee: Decimal,
-    pub prize_pool: Decimal,
+    pub entry_fee: i32, // TODO: Use Decimal when rust_decimal is added
+    pub prize_pool: i32, // TODO: Use Decimal when rust_decimal is added
     pub max_participants: i32,
     pub current_participants: i32,
     pub status: String,
@@ -25,16 +22,13 @@ pub struct Tournament {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTournamentRequest {
-    #[validate(length(min = 3, max = 100))]
     pub name: String,
-    #[validate(length(max = 500))]
     pub description: Option<String>,
-    #[validate(length(min = 1, max = 50))]
     pub game_type: String,
     pub tournament_type: String,
-    pub entry_fee: Decimal,
+    pub entry_fee: i32, // TODO: Use Decimal when rust_decimal is added
     pub max_participants: i32,
     pub visibility: String,
     pub start_time: DateTime<Utc>,

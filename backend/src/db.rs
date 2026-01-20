@@ -1,24 +1,13 @@
-use sqlx::{PgPool, postgres::PgPoolOptions};
-use crate::config::DatabaseConfig;
+// TODO: Implement database connection with sqlx
+#[derive(Clone)]
+pub struct DbPool;
 
-pub type DbPool = PgPool;
-
-pub async fn create_pool(config: &DatabaseConfig) -> Result<DbPool, sqlx::Error> {
-    PgPoolOptions::new()
-        .max_connections(config.max_connections)
-        .connect(&config.url)
-        .await
+pub async fn create_pool(_config: &crate::config::DatabaseConfig) -> Result<DbPool, Box<dyn std::error::Error>> {
+    // TODO: Implement database connection
+    Ok(DbPool)
 }
 
-pub async fn run_migrations(pool: &DbPool) -> Result<(), sqlx::Error> {
-    sqlx::migrate!("./migrations")
-        .run(pool)
-        .await
-}
-
-pub async fn health_check(pool: &DbPool) -> Result<(), sqlx::Error> {
-    sqlx::query("SELECT 1")
-        .execute(pool)
-        .await?;
+pub async fn health_check(_pool: &DbPool) -> Result<(), Box<dyn std::error::Error>> {
+    // TODO: Implement database health check
     Ok(())
 }
