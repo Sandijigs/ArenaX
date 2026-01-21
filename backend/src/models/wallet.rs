@@ -54,15 +54,16 @@ pub struct PaymentMethod {
 }
 
 // Enums
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum TransactionType {
-    Deposit,
-    Withdrawal,
-    Payment,
-    Refund,
-    Prize,
-    EntryFee,
-    Fee,
+    Deposit = 0,
+    Withdrawal = 1,
+    Payment = 2,
+    Refund = 3,
+    Prize = 4,
+    EntryFee = 5,
+    Fee = 6,
 }
 
 impl std::fmt::Display for TransactionType {
@@ -79,14 +80,15 @@ impl std::fmt::Display for TransactionType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum TransactionStatus {
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-    Cancelled,
-    Refunded,
+    Pending = 0,
+    Processing = 1,
+    Completed = 2,
+    Failed = 3,
+    Cancelled = 4,
+    Refunded = 5,
 }
 
 impl std::fmt::Display for TransactionStatus {

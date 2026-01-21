@@ -7,11 +7,13 @@ use validator::Validate;
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct StellarAccount {
     pub id: Uuid,
-    pub user_id: Uuid,
+    pub user_id: Option<Uuid>,
     pub public_key: String,
-    pub secret_key_encrypted: String,
+    pub encrypted_secret_key: Option<String>,
     pub account_type: String,
+    pub is_funded: bool,
     pub is_active: bool,
+    pub balance_xlm: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

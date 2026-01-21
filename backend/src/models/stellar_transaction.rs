@@ -9,21 +9,18 @@ use validator::Validate;
 pub struct StellarTransaction {
     pub id: Uuid,
     pub user_id: Option<Uuid>,
-    pub wallet_id: Option<Uuid>,
     pub transaction_hash: String,
-    pub transaction_type: String,
-    pub amount: Decimal,
-    pub fee: Decimal,
-    pub currency: String,
-    pub status: String,
-    pub stellar_sequence_number: Option<i64>,
-    pub source_account: Option<String>,
-    pub destination_account: Option<String>,
+    pub source_account: String,
+    pub destination_account: String,
+    pub amount: i64, // in stroops
+    pub asset_code: String,
+    pub asset_issuer: Option<String>,
+    pub operation_type: String,
     pub memo: Option<String>,
-    pub metadata: Option<serde_json::Value>,
-    pub confirmed_at: Option<DateTime<Utc>>,
+    pub status: String,
+    pub ledger_sequence: Option<i64>,
     pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -10,29 +10,23 @@ pub struct Tournament {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
-    pub game_type: String,
-    pub tournament_type: String,
-    pub entry_fee: Decimal,
-    pub prize_pool: Decimal,
+    pub game: String, // Changed from game_type for consistency
     pub max_participants: i32,
-    pub current_participants: i32,
-    pub min_participants: i32,
-    pub status: String,
-    pub visibility: String,
-    pub registration_start: Option<DateTime<Utc>>,
-    pub registration_end: Option<DateTime<Utc>>,
+    pub entry_fee: i64, // Changed from Decimal for database compatibility
+    pub entry_fee_currency: String,
+    pub prize_pool: i64, // Changed from Decimal
+    pub prize_pool_currency: String,
+    pub status: TournamentStatus,
     pub start_time: DateTime<Utc>,
     pub end_time: Option<DateTime<Utc>>,
-    pub bracket_generated_at: Option<DateTime<Utc>>,
-    pub rules: Option<serde_json::Value>,
-    pub metadata: Option<serde_json::Value>,
-    pub created_by: Option<Uuid>,
+    pub registration_deadline: DateTime<Utc>,
+    pub created_by: Uuid,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    // Stellar integration fields
-    pub stellar_prize_pool_account: Option<String>,
-    pub entry_fee_currency: Option<String>,
-    pub prize_pool_currency: Option<String>,
+    pub bracket_type: BracketType,
+    pub rules: Option<String>,
+    pub min_skill_level: Option<i32>, // For skill-based matchmaking
+    pub max_skill_level: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,15 +48,16 @@ impl std::fmt::Display for TournamentType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum TournamentStatus {
-    Draft,
-    Upcoming,
-    RegistrationOpen,
-    RegistrationClosed,
-    InProgress,
-    Completed,
-    Cancelled,
+    Draft = 0,
+    Upcoming = 1,
+    RegistrationOpen = 2,
+    RegistrationClosed = 3,
+    InProgress = 4,
+    Completed = 5,
+    Cancelled = 6,
 }
 
 impl std::fmt::Display for TournamentStatus {
@@ -103,21 +98,17 @@ pub struct CreateTournamentRequest {
     #[validate(length(max = 1000))]
     pub description: Option<String>,
     #[validate(length(min = 1, max = 50))]
-    pub game_type: String,
-    pub tournament_type: TournamentType,
-    pub entry_fee: Decimal,
+    pub game: String,
+    pub bracket_type: BracketType,
+    pub entry_fee: i64,
+    pub entry_fee_currency: String,
     #[validate(range(min = 2, max = 1000))]
     pub max_participants: i32,
-    #[validate(range(min = 2))]
-    pub min_participants: i32,
-    pub visibility: Option<TournamentVisibility>,
-    pub registration_start: Option<DateTime<Utc>>,
-    pub registration_end: Option<DateTime<Utc>>,
     pub start_time: DateTime<Utc>,
-    pub end_time: Option<DateTime<Utc>>,
-    pub rules: Option<serde_json::Value>,
-    pub metadata: Option<serde_json::Value>,
-    pub entry_fee_currency: Option<String>,
+    pub registration_deadline: DateTime<Utc>,
+    pub rules: Option<String>,
+    pub min_skill_level: Option<i32>,
+    pub max_skill_level: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -144,60 +135,21 @@ pub struct TournamentResponse {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
-    pub game_type: String,
-    pub tournament_type: String,
-    pub entry_fee: Decimal,
-    pub prize_pool: Decimal,
+    pub game: String,
     pub max_participants: i32,
     pub current_participants: i32,
-    pub min_participants: i32,
-    pub status: String,
-    pub visibility: String,
-    pub registration_start: Option<DateTime<Utc>>,
-    pub registration_end: Option<DateTime<Utc>>,
+    pub entry_fee: i64,
+    pub entry_fee_currency: String,
+    pub prize_pool: i64,
+    pub prize_pool_currency: String,
+    pub status: TournamentStatus,
     pub start_time: DateTime<Utc>,
     pub end_time: Option<DateTime<Utc>>,
-    pub bracket_generated_at: Option<DateTime<Utc>>,
-    pub rules: Option<serde_json::Value>,
-    pub metadata: Option<serde_json::Value>,
-    pub created_by: Option<Uuid>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub stellar_prize_pool_account: Option<String>,
-    pub entry_fee_currency: Option<String>,
-    pub prize_pool_currency: Option<String>,
-}
-
-impl From<Tournament> for TournamentResponse {
-    fn from(tournament: Tournament) -> Self {
-        Self {
-            id: tournament.id,
-            name: tournament.name,
-            description: tournament.description,
-            game_type: tournament.game_type,
-            tournament_type: tournament.tournament_type,
-            entry_fee: tournament.entry_fee,
-            prize_pool: tournament.prize_pool,
-            max_participants: tournament.max_participants,
-            current_participants: tournament.current_participants,
-            min_participants: tournament.min_participants,
-            status: tournament.status,
-            visibility: tournament.visibility,
-            registration_start: tournament.registration_start,
-            registration_end: tournament.registration_end,
-            start_time: tournament.start_time,
-            end_time: tournament.end_time,
-            bracket_generated_at: tournament.bracket_generated_at,
-            rules: tournament.rules,
-            metadata: tournament.metadata,
-            created_by: tournament.created_by,
-            created_at: tournament.created_at,
-            updated_at: tournament.updated_at,
-            stellar_prize_pool_account: tournament.stellar_prize_pool_account,
-            entry_fee_currency: tournament.entry_fee_currency,
-            prize_pool_currency: tournament.prize_pool_currency,
-        }
-    }
+    pub registration_deadline: DateTime<Utc>,
+    pub bracket_type: BracketType,
+    pub can_join: bool,
+    pub is_participant: bool,
+    pub participant_status: Option<ParticipantStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -205,39 +157,33 @@ pub struct TournamentParticipant {
     pub id: Uuid,
     pub tournament_id: Uuid,
     pub user_id: Uuid,
-    pub registration_date: DateTime<Utc>,
-    pub status: String,
+    pub registered_at: DateTime<Utc>,
+    pub entry_fee_paid: bool,
+    pub status: ParticipantStatus,
     pub seed_number: Option<i32>,
-    pub payment_status: String,
-    pub payment_transaction_id: Option<Uuid>,
-    pub stellar_entry_transaction_id: Option<String>,
     pub current_round: Option<i32>,
     pub eliminated_at: Option<DateTime<Utc>>,
     pub final_rank: Option<i32>,
-    pub prize_amount: Option<Decimal>,
+    pub prize_amount: Option<i64>,
     pub prize_currency: Option<String>,
-    pub stellar_payout_transaction_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum ParticipantStatus {
-    Registered,
-    Confirmed,
-    CheckedIn,
-    Active,
-    Eliminated,
-    Disqualified,
-    Withdrawn,
+    Registered = 0,
+    Paid = 1,
+    Active = 2,
+    Eliminated = 3,
+    Disqualified = 4,
+    Withdrawn = 5,
 }
 
 impl std::fmt::Display for ParticipantStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParticipantStatus::Registered => write!(f, "registered"),
-            ParticipantStatus::Confirmed => write!(f, "confirmed"),
-            ParticipantStatus::CheckedIn => write!(f, "checked_in"),
+            ParticipantStatus::Paid => write!(f, "paid"),
             ParticipantStatus::Active => write!(f, "active"),
             ParticipantStatus::Eliminated => write!(f, "eliminated"),
             ParticipantStatus::Disqualified => write!(f, "disqualified"),
@@ -264,7 +210,7 @@ pub struct TournamentStanding {
 pub struct PrizePool {
     pub id: Uuid,
     pub tournament_id: Uuid,
-    pub total_amount: Decimal,
+    pub total_amount: i64,
     pub currency: String,
     pub stellar_account: String,
     pub stellar_asset_code: Option<String>,
@@ -285,4 +231,178 @@ pub struct TournamentListResponse {
     pub total: i64,
     pub page: i32,
     pub per_page: i32,
+}
+
+// ===== Additional Types for Complete Tournament Management =====
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
+#[sqlx(type_name = "bracket_type", rename_all = "lowercase")]
+pub enum BracketType {
+    SingleElimination,
+    DoubleElimination,
+    RoundRobin,
+    Swiss,
+}
+
+impl std::fmt::Display for BracketType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BracketType::SingleElimination => write!(f, "single_elimination"),
+            BracketType::DoubleElimination => write!(f, "double_elimination"),
+            BracketType::RoundRobin => write!(f, "round_robin"),
+            BracketType::Swiss => write!(f, "swiss"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
+#[sqlx(type_name = "round_type", rename_all = "lowercase")]
+pub enum RoundType {
+    Qualification,
+    Elimination,
+    Semifinal,
+    Final,
+}
+
+impl std::fmt::Display for RoundType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoundType::Qualification => write!(f, "qualification"),
+            RoundType::Elimination => write!(f, "elimination"),
+            RoundType::Semifinal => write!(f, "semifinal"),
+            RoundType::Final => write!(f, "final"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
+#[sqlx(type_name = "round_status", rename_all = "lowercase")]
+pub enum RoundStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+impl std::fmt::Display for RoundStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RoundStatus::Pending => write!(f, "pending"),
+            RoundStatus::InProgress => write!(f, "in_progress"),
+            RoundStatus::Completed => write!(f, "completed"),
+            RoundStatus::Cancelled => write!(f, "cancelled"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type, PartialEq, Eq)]
+#[sqlx(type_name = "match_status", rename_all = "lowercase")]
+pub enum MatchStatus {
+    Pending,
+    Scheduled,
+    InProgress,
+    Completed,
+    Disputed,
+    Cancelled,
+    Abandoned,
+}
+
+impl std::fmt::Display for MatchStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MatchStatus::Pending => write!(f, "pending"),
+            MatchStatus::Scheduled => write!(f, "scheduled"),
+            MatchStatus::InProgress => write!(f, "in_progress"),
+            MatchStatus::Completed => write!(f, "completed"),
+            MatchStatus::Disputed => write!(f, "disputed"),
+            MatchStatus::Cancelled => write!(f, "cancelled"),
+            MatchStatus::Abandoned => write!(f, "abandoned"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TournamentRound {
+    pub id: Uuid,
+    pub tournament_id: Uuid,
+    pub round_number: i32,
+    pub round_type: String,
+    pub status: String,
+    pub scheduled_start: Option<DateTime<Utc>>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct TournamentMatch {
+    pub id: Uuid,
+    pub tournament_id: Uuid,
+    pub round_id: Uuid,
+    pub match_number: i32,
+    pub player1_id: Uuid,
+    pub player2_id: Option<Uuid>,
+    pub winner_id: Option<Uuid>,
+    pub player1_score: Option<i32>,
+    pub player2_score: Option<i32>,
+    pub status: String,
+    pub scheduled_time: Option<DateTime<Utc>>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+// ===== Type Conversions =====
+
+impl From<i32> for BracketType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => BracketType::SingleElimination,
+            1 => BracketType::DoubleElimination,
+            2 => BracketType::RoundRobin,
+            3 => BracketType::Swiss,
+            _ => BracketType::SingleElimination,
+        }
+    }
+}
+
+impl From<i32> for RoundType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => RoundType::Qualification,
+            1 => RoundType::Elimination,
+            2 => RoundType::Semifinal,
+            3 => RoundType::Final,
+            _ => RoundType::Elimination,
+        }
+    }
+}
+
+impl From<i32> for RoundStatus {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => RoundStatus::Pending,
+            1 => RoundStatus::InProgress,
+            2 => RoundStatus::Completed,
+            3 => RoundStatus::Cancelled,
+            _ => RoundStatus::Pending,
+        }
+    }
+}
+
+impl From<i32> for MatchStatus {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => MatchStatus::Pending,
+            1 => MatchStatus::Scheduled,
+            2 => MatchStatus::InProgress,
+            3 => MatchStatus::Completed,
+            4 => MatchStatus::Disputed,
+            5 => MatchStatus::Cancelled,
+            6 => MatchStatus::Abandoned,
+            _ => MatchStatus::Pending,
+        }
+    }
 }

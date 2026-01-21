@@ -107,51 +107,51 @@ pub struct EloHistory {
 }
 
 // Enums
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "match_type", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum MatchType {
-    Tournament,
-    Casual,
-    Ranked,
-    Practice,
+    Tournament = 0,
+    Casual = 1,
+    Ranked = 2,
+    Practice = 3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "match_status", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum MatchStatus {
-    Pending,
-    Scheduled,
-    InProgress,
-    Completed,
-    Disputed,
-    Cancelled,
-    Abandoned,
+    Pending = 0,
+    Scheduled = 1,
+    InProgress = 2,
+    Completed = 3,
+    Disputed = 4,
+    Cancelled = 5,
+    Abandoned = 6,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "dispute_status", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum DisputeStatus {
-    Pending,
-    UnderReview,
-    Resolved,
-    Rejected,
+    Pending = 0,
+    UnderReview = 1,
+    Resolved = 2,
+    Rejected = 3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "queue_status", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum QueueStatus {
-    Waiting,
-    Matched,
-    Expired,
-    Cancelled,
+    Waiting = 0,
+    Matched = 1,
+    Expired = 2,
+    Cancelled = 3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
-#[sqlx(type_name = "match_result", rename_all = "lowercase")]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[repr(i32)]
 pub enum MatchResult {
-    Win,
-    Loss,
-    Draw,
+    Win = 0,
+    Loss = 1,
+    Draw = 2,
 }
 
 // DTOs for API requests/responses
@@ -227,4 +227,14 @@ pub struct EloResponse {
     pub loss_streak: i32,
     pub rank: Option<i32>, // Global rank
     pub percentile: Option<f64>, // Top X% of players
+}
+
+// ===== Additional Response Types for Complete Match Management =====
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DisputeListResponse {
+    pub disputes: Vec<MatchDispute>,
+    pub total: i64,
+    pub page: i32,
+    pub per_page: i32,
 }
