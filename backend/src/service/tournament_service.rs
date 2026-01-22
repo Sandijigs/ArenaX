@@ -1,29 +1,28 @@
-use crate::models::tournament::*;
-use crate::models::user::User;
-use crate::models::wallet::*;
-use crate::models::stellar::*;
+use crate::models::*;
 use crate::db::DbPool;
 use crate::api_error::ApiError;
-use crate::realtime::{RedisClient, TournamentEvent, GlobalEvent};
 use sqlx::Row;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+use std::sync::Arc;
+use redis::Client as RedisClient;
+use serde::{Serialize, Deserialize};
 
 pub struct TournamentService {
     db_pool: DbPool,
-    redis_client: Option<RedisClient>,
+    redis_client: Option<Arc<RedisClient>>,
 }
 
 impl TournamentService {
     pub fn new(db_pool: DbPool) -> Self {
-        Self { 
+        Self {
             db_pool,
             redis_client: None,
         }
     }
 
-    pub fn with_redis(mut self, redis_client: RedisClient) -> Self {
+    pub fn with_redis(mut self, redis_client: Arc<RedisClient>) -> Self {
         self.redis_client = Some(redis_client);
         self
     }
@@ -77,19 +76,21 @@ impl TournamentService {
         self.create_prize_pool(&tournament.id, &request.entry_fee_currency).await?;
 
         // Publish tournament created event
-        self.publish_tournament_event(TournamentEvent::created(
-            tournament.id,
-            tournament.name.clone(),
-            tournament.game.clone(),
-            tournament.max_participants,
-        )).await?;
+        self.publish_tournament_event(serde_json::json!({
+            "type": "created",
+            "tournament_id": tournament.id,
+            "name": tournament.name,
+            "game": tournament.game,
+            "max_participants": tournament.max_participants
+        })).await?;
 
         // Publish global event
-        self.publish_global_event(GlobalEvent::tournament_created(
-            tournament.id,
-            tournament.name.clone(),
-            tournament.game.clone(),
-        )).await?;
+        self.publish_global_event(serde_json::json!({
+            "type": "tournament_created",
+            "tournament_id": tournament.id,
+            "name": tournament.name,
+            "game": tournament.game
+        })).await?;
 
         Ok(tournament)
     }
@@ -323,12 +324,13 @@ impl TournamentService {
         let username = self.get_user_username(user_id).await.unwrap_or_else(|| "Unknown".to_string());
 
         // Publish participant joined event
-        self.publish_tournament_event(TournamentEvent::participant_joined(
-            tournament_id,
-            user_id,
-            username,
-            self.get_participant_count(tournament_id).await?,
-        )).await?;
+        self.publish_tournament_event(serde_json::json!({
+            "type": "participant_joined",
+            "tournament_id": tournament_id,
+            "user_id": user_id,
+            "username": username,
+            "participant_count": self.get_participant_count(tournament_id).await?
+        })).await?;
 
         Ok(participant)
     }
@@ -367,11 +369,13 @@ impl TournamentService {
         }
 
         // Publish status change event
-        self.publish_tournament_event(TournamentEvent::status_changed(
-            tournament_id,
-            self.get_tournament_by_id(tournament_id).await?.status,
-            new_status,
-        )).await?;
+        let old_status = self.get_tournament_by_id(tournament_id).await?.status;
+        self.publish_tournament_event(serde_json::json!({
+            "type": "status_changed",
+            "tournament_id": tournament_id,
+            "old_status": old_status,
+            "new_status": new_status
+        })).await?;
 
         Ok(tournament)
     }
@@ -1378,19 +1382,16 @@ impl TournamentService {
     }
 
     // Real-time event publishing methods
-    async fn publish_tournament_event(&self, event: TournamentEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_tournament_event(event.tournament_id, &event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish tournament event: {}", e)))?;
-        }
+    // TODO: Implement proper realtime module with event types
+    async fn publish_tournament_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time tournament event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
-    async fn publish_global_event(&self, event: GlobalEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_global_event(&event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish global event: {}", e)))?;
-        }
+    async fn publish_global_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time global event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 

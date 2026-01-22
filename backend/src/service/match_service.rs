@@ -2,27 +2,29 @@ use crate::models::match_models::*;
 use crate::models::user::User;
 use crate::db::DbPool;
 use crate::api_error::ApiError;
-use crate::realtime::{RedisClient, MatchEvent, GlobalEvent, EloChanges};
 use sqlx::Row;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::sync::Arc;
+use redis::Client as RedisClient;
+use serde::{Serialize, Deserialize};
 
 pub struct MatchService {
     db_pool: DbPool,
-    redis_client: Option<RedisClient>,
+    redis_client: Option<Arc<RedisClient>>,
 }
 
 impl MatchService {
     pub fn new(db_pool: DbPool) -> Self {
-        Self { 
+        Self {
             db_pool,
             redis_client: None,
         }
     }
 
-    pub fn with_redis(mut self, redis_client: RedisClient) -> Self {
+    pub fn with_redis(mut self, redis_client: Arc<RedisClient>) -> Self {
         self.redis_client = Some(redis_client);
         self
     }
@@ -163,13 +165,14 @@ impl MatchService {
         self.update_match_score(match_id, user_id, request.score).await?;
 
         // Publish score reported event
-        self.publish_match_event(MatchEvent::score_reported(
-            match_id,
-            match_record.tournament_id,
-            user_id,
-            request.score,
-            false, // Will be updated below if both reported
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "score_reported",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "user_id": user_id,
+            "score": request.score,
+            "both_reported": false
+        })).await?;
 
         // Check if both players have reported scores
         let both_reported = self.both_players_reported_scores(match_id).await?;
@@ -218,12 +221,13 @@ impl MatchService {
         self.update_match_status(match_id, MatchStatus::Disputed).await?;
 
         // Publish dispute event
-        self.publish_match_event(MatchEvent::disputed(
-            match_id,
-            match_record.tournament_id,
-            user_id,
-            request.reason.clone(),
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "disputed",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "user_id": user_id,
+            "reason": request.reason
+        })).await?;
 
         Ok(dispute)
     }
@@ -593,40 +597,39 @@ impl MatchService {
         // Create Elo history records
         self.create_elo_history(&match_record, winner_id).await?;
 
-        // Create Elo changes data for event
-        let elo_changes = EloChanges {
-            player1_id: match_record.player1_id,
-            player1_elo_before: match_record.player1_elo_before.unwrap_or(1200),
-            player1_elo_after: match_record.player1_elo_after.unwrap_or(1200),
-            player1_change: match_record.player1_elo_after.unwrap_or(1200) - match_record.player1_elo_before.unwrap_or(1200),
-            player2_id: match_record.player2_id,
-            player2_elo_before: match_record.player2_elo_before,
-            player2_elo_after: match_record.player2_elo_after,
-            player2_change: if let (Some(after), Some(before)) = (match_record.player2_elo_after, match_record.player2_elo_before) {
-                Some(after - before)
-            } else {
-                None
-            },
-        };
-
         // Publish match completed event
-        self.publish_match_event(MatchEvent::completed(
-            match_id,
-            match_record.tournament_id,
-            winner_id,
-            match_record.player1_score.unwrap_or(0),
-            match_record.player2_score.unwrap_or(0),
-            elo_changes,
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "completed",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "winner_id": winner_id,
+            "player1_score": match_record.player1_score.unwrap_or(0),
+            "player2_score": match_record.player2_score.unwrap_or(0),
+            "elo_changes": {
+                "player1_id": match_record.player1_id,
+                "player1_elo_before": match_record.player1_elo_before.unwrap_or(1200),
+                "player1_elo_after": match_record.player1_elo_after.unwrap_or(1200),
+                "player1_change": match_record.player1_elo_after.unwrap_or(1200) - match_record.player1_elo_before.unwrap_or(1200),
+                "player2_id": match_record.player2_id,
+                "player2_elo_before": match_record.player2_elo_before,
+                "player2_elo_after": match_record.player2_elo_after,
+                "player2_change": if let (Some(after), Some(before)) = (match_record.player2_elo_after, match_record.player2_elo_before) {
+                    Some(after - before)
+                } else {
+                    None
+                }
+            }
+        })).await?;
 
         // Publish global event if it's a ranked match
         if match_record.match_type == MatchType::Ranked {
             if let Some(winner) = winner_id {
-                self.publish_global_event(GlobalEvent::match_completed(
-                    match_id,
-                    match_record.game_mode.clone(),
-                    winner,
-                )).await?;
+                self.publish_global_event(serde_json::json!({
+                    "type": "match_completed",
+                    "match_id": match_id,
+                    "game_mode": match_record.game_mode,
+                    "winner_id": winner
+                })).await?;
             }
         }
 
@@ -1421,19 +1424,16 @@ impl From<i32> for QueueStatus {
 
 impl MatchService {
     // Real-time event publishing methods
-    async fn publish_match_event(&self, event: MatchEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_match_event(event.match_id, &event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish match event: {}", e)))?;
-        }
+    // TODO: Implement proper realtime module with event types
+    async fn publish_match_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time match event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
-    async fn publish_global_event(&self, event: GlobalEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_global_event(&event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish global event: {}", e)))?;
-        }
+    async fn publish_global_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time global event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
@@ -1540,10 +1540,11 @@ impl MatchService {
         .map_err(|e| ApiError::DatabaseError(e))?;
 
         // Publish match started event
-        self.publish_match_event(MatchEvent::started(
-            match_id,
-            match_record.tournament_id,
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "started",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id
+        })).await?;
 
         Ok(updated_match)
     }
@@ -1582,11 +1583,12 @@ impl MatchService {
         .map_err(|e| ApiError::DatabaseError(e))?;
 
         // Publish match scheduled event
-        self.publish_match_event(MatchEvent::scheduled(
-            match_id,
-            match_record.tournament_id,
-            scheduled_time,
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "scheduled",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "scheduled_time": scheduled_time
+        })).await?;
 
         Ok(updated_match)
     }
