@@ -1,17 +1,17 @@
-use crate::models::match_models::*;
-use crate::models::user::User;
+use crate::models::*;
 use crate::db::DbPool;
 use crate::api_error::ApiError;
-use crate::realtime::{RedisClient, MatchEvent, GlobalEvent, EloChanges};
 use sqlx::Row;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::sync::Arc;
+use redis::Client as RedisClient;
 
 pub struct MatchService {
     db_pool: DbPool,
-    redis_client: Option<RedisClient>,
+    redis_client: Option<Arc<RedisClient>>,
 }
 
 impl MatchService {
@@ -72,7 +72,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(match_record)
     }
@@ -86,8 +86,8 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Match not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Match not found"))?;
 
         // Get player information
         let player1 = self.get_player_info(match_record.player1_id).await?;
@@ -157,19 +157,19 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Update match with score
         self.update_match_score(match_id, user_id, request.score).await?;
 
         // Publish score reported event
-        self.publish_match_event(MatchEvent::score_reported(
-            match_id,
-            match_record.tournament_id,
-            user_id,
-            request.score,
-            false, // Will be updated below if both reported
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "score_reported",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "user_id": user_id,
+            "score": request.score
+        })).await?;
 
         // Check if both players have reported scores
         let both_reported = self.both_players_reported_scores(match_id).await?;
@@ -212,18 +212,19 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Update match status to disputed
         self.update_match_status(match_id, MatchStatus::Disputed).await?;
 
         // Publish dispute event
-        self.publish_match_event(MatchEvent::disputed(
-            match_id,
-            match_record.tournament_id,
-            user_id,
-            request.reason.clone(),
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "disputed",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "user_id": user_id,
+            "reason": request.reason
+        })).await?;
 
         Ok(dispute)
     }
@@ -236,7 +237,7 @@ impl MatchService {
     ) -> Result<MatchmakingQueue, ApiError> {
         // Check if user is already in queue
         if self.is_user_in_queue(user_id, &request.game).await? {
-            return Err(ApiError::BadRequest("User is already in matchmaking queue".to_string()));
+            return Err(ApiError::bad_request("User is already in matchmaking queue"));
         }
 
         // Get user's current Elo rating
@@ -272,7 +273,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Try to find a match immediately
         self.try_matchmaking(&request.game, &request.game_mode).await?;
@@ -290,7 +291,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         if let Some(entry) = queue_entry {
             // Calculate queue position
@@ -328,8 +329,8 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Elo rating not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Elo rating not found"))?;
 
         // Calculate win rate
         let total_games = elo_record.games_played;
@@ -369,7 +370,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(elo_record.map(|r| r.current_rating).unwrap_or(1200)) // Default Elo rating
     }
@@ -382,8 +383,8 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("User not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("User not found"))?;
 
         // Get user's Elo rating for the game (assuming we have a default game)
         let elo_rating = self.get_user_elo(user_id, "default").await?;
@@ -421,7 +422,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(existing_score.is_none())
     }
@@ -451,7 +452,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(existing_dispute.is_none())
     }
@@ -463,7 +464,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(dispute.map(|d| d.status.into()))
     }
@@ -476,19 +477,19 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Match not found".to_string()))
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Match not found".to_string()))
     }
 
     async fn validate_score_report(&self, match_record: &Match, user_id: Uuid) -> Result<(), ApiError> {
         // Check if user is a player in this match
         if user_id != match_record.player1_id && match_record.player2_id.map(|p2| p2 != user_id).unwrap_or(true) {
-            return Err(ApiError::Forbidden("User is not a player in this match".to_string()));
+            return Err(ApiError::forbidden("User is not a player in this match"));
         }
 
         // Check if match is in progress
         if match_record.status != MatchStatus::InProgress {
-            return Err(ApiError::BadRequest("Match is not in progress".to_string()));
+            return Err(ApiError::bad_request("Match is not in progress"));
         }
 
         // Check if user has already reported score
@@ -499,10 +500,10 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         if existing_score.is_some() {
-            return Err(ApiError::BadRequest("Score already reported for this match".to_string()));
+            return Err(ApiError::bad_request("Score already reported for this match"));
         }
 
         Ok(())
@@ -520,7 +521,7 @@ impl MatchService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         } else if match_record.player2_id.map(|p2| p2 == user_id).unwrap_or(false) {
             sqlx::query!(
                 "UPDATE matches SET player2_score = $1, updated_at = $2 WHERE id = $3",
@@ -530,7 +531,7 @@ impl MatchService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         }
 
         Ok(())
@@ -546,7 +547,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         let player2_score = if let Some(p2_id) = match_record.player2_id {
             sqlx::query!(
@@ -556,7 +557,7 @@ impl MatchService {
             )
             .fetch_optional(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?
+            .map_err(|e| ApiError::database_error(e))?
         } else {
             Some(sqlx::Row::new()) // Bye match, consider as reported
         };
@@ -585,7 +586,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Update Elo ratings
         self.update_elo_ratings(&match_record, winner_id).await?;
@@ -593,40 +594,25 @@ impl MatchService {
         // Create Elo history records
         self.create_elo_history(&match_record, winner_id).await?;
 
-        // Create Elo changes data for event
-        let elo_changes = EloChanges {
-            player1_id: match_record.player1_id,
-            player1_elo_before: match_record.player1_elo_before.unwrap_or(1200),
-            player1_elo_after: match_record.player1_elo_after.unwrap_or(1200),
-            player1_change: match_record.player1_elo_after.unwrap_or(1200) - match_record.player1_elo_before.unwrap_or(1200),
-            player2_id: match_record.player2_id,
-            player2_elo_before: match_record.player2_elo_before,
-            player2_elo_after: match_record.player2_elo_after,
-            player2_change: if let (Some(after), Some(before)) = (match_record.player2_elo_after, match_record.player2_elo_before) {
-                Some(after - before)
-            } else {
-                None
-            },
-        };
-
         // Publish match completed event
-        self.publish_match_event(MatchEvent::completed(
-            match_id,
-            match_record.tournament_id,
-            winner_id,
-            match_record.player1_score.unwrap_or(0),
-            match_record.player2_score.unwrap_or(0),
-            elo_changes,
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "completed",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "winner_id": winner_id,
+            "player1_score": match_record.player1_score.unwrap_or(0),
+            "player2_score": match_record.player2_score.unwrap_or(0)
+        })).await?;
 
         // Publish global event if it's a ranked match
         if match_record.match_type == MatchType::Ranked {
             if let Some(winner) = winner_id {
-                self.publish_global_event(GlobalEvent::match_completed(
-                    match_id,
-                    match_record.game_mode.clone(),
-                    winner,
-                )).await?;
+                self.publish_global_event(serde_json::json!({
+                    "type": "match_completed",
+                    "match_id": match_id,
+                    "game_mode": match_record.game_mode,
+                    "winner_id": winner
+                })).await?;
             }
         }
 
@@ -698,7 +684,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -748,7 +734,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         if let Some(elo_record) = current_elo {
             // Update existing record
@@ -788,7 +774,7 @@ impl MatchService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         } else {
             // Create new record
             let (wins, losses, draws) = match result {
@@ -827,7 +813,7 @@ impl MatchService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         }
 
         Ok(())
@@ -875,7 +861,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Create history for player 2
         let player2_result = if winner_id == match_record.player2_id {
@@ -909,7 +895,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -917,12 +903,12 @@ impl MatchService {
     async fn validate_dispute_creation(&self, match_record: &Match, user_id: Uuid) -> Result<(), ApiError> {
         // Check if user is a player in this match
         if user_id != match_record.player1_id && match_record.player2_id.map(|p2| p2 != user_id).unwrap_or(true) {
-            return Err(ApiError::Forbidden("User is not a player in this match".to_string()));
+            return Err(ApiError::forbidden("User is not a player in this match"));
         }
 
         // Check if match is completed
         if match_record.status != MatchStatus::Completed {
-            return Err(ApiError::BadRequest("Match is not completed".to_string()));
+            return Err(ApiError::bad_request("Match is not completed"));
         }
 
         // Check if there's already a pending dispute
@@ -933,10 +919,10 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         if existing_dispute.is_some() {
-            return Err(ApiError::BadRequest("Dispute already exists for this match".to_string()));
+            return Err(ApiError::bad_request("Dispute already exists for this match"));
         }
 
         Ok(())
@@ -951,7 +937,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -965,7 +951,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -993,7 +979,7 @@ impl MatchService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Try to match players
         for i in 0..candidates.len() {
@@ -1040,7 +1026,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Update player 2
         sqlx::query!(
@@ -1052,7 +1038,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -1071,7 +1057,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .position
         .unwrap_or(0);
 
@@ -1088,7 +1074,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -1112,7 +1098,7 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         if let Some(match_record) = match_record {
             Ok(Some(self.get_match(match_record.id, Some(user_id)).await?))
@@ -1133,7 +1119,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -1144,7 +1130,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -1168,7 +1154,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -1201,7 +1187,7 @@ impl MatchService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Get total count
         let total = sqlx::query!(
@@ -1217,7 +1203,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -1285,7 +1271,7 @@ impl MatchService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Get total count
         let total = sqlx::query!(
@@ -1294,7 +1280,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -1421,19 +1407,16 @@ impl From<i32> for QueueStatus {
 
 impl MatchService {
     // Real-time event publishing methods
-    async fn publish_match_event(&self, event: MatchEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_match_event(event.match_id, &event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish match event: {}", e)))?;
-        }
+    // TODO: Implement proper realtime module with event types
+    async fn publish_match_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time match event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
-    async fn publish_global_event(&self, event: GlobalEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_global_event(&event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish global event: {}", e)))?;
-        }
+    async fn publish_global_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time global event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
@@ -1462,7 +1445,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Update match record if winner needs to be reassigned
         if let Some(new_winner) = winner_id {
@@ -1474,7 +1457,7 @@ impl MatchService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
 
             // Recalculate Elo ratings with new winner
             let match_record = self.get_match_by_id(dispute.match_id).await?;
@@ -1508,7 +1491,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         tracing::info!("Dispute {} rejected by admin {}", dispute_id, admin_id);
         Ok(dispute)
@@ -1519,7 +1502,7 @@ impl MatchService {
         let match_record = self.get_match_by_id(match_id).await?;
 
         if match_record.status != MatchStatus::Scheduled {
-            return Err(ApiError::BadRequest("Match cannot be started from current status".to_string()));
+            return Err(ApiError::bad_request("Match cannot be started from current status".to_string()));
         }
 
         let updated_match = sqlx::query_as!(
@@ -1537,13 +1520,14 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Publish match started event
-        self.publish_match_event(MatchEvent::started(
-            match_id,
-            match_record.tournament_id,
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "started",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id
+        })).await?;
 
         Ok(updated_match)
     }
@@ -1557,11 +1541,11 @@ impl MatchService {
         let match_record = self.get_match_by_id(match_id).await?;
 
         if match_record.status != MatchStatus::Pending {
-            return Err(ApiError::BadRequest("Match cannot be scheduled from current status".to_string()));
+            return Err(ApiError::bad_request("Match cannot be scheduled from current status".to_string()));
         }
 
         if scheduled_time <= Utc::now() {
-            return Err(ApiError::BadRequest("Scheduled time must be in the future".to_string()));
+            return Err(ApiError::bad_request("Scheduled time must be in the future".to_string()));
         }
 
         let updated_match = sqlx::query_as!(
@@ -1579,14 +1563,15 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Publish match scheduled event
-        self.publish_match_event(MatchEvent::scheduled(
-            match_id,
-            match_record.tournament_id,
-            scheduled_time,
-        )).await?;
+        self.publish_match_event(serde_json::json!({
+            "type": "scheduled",
+            "match_id": match_id,
+            "tournament_id": match_record.tournament_id,
+            "scheduled_time": scheduled_time
+        })).await?;
 
         Ok(updated_match)
     }
@@ -1600,7 +1585,7 @@ impl MatchService {
         let match_record = self.get_match_by_id(match_id).await?;
 
         if match_record.status == MatchStatus::Completed || match_record.status == MatchStatus::Cancelled {
-            return Err(ApiError::BadRequest("Cannot cancel a completed or already cancelled match".to_string()));
+            return Err(ApiError::bad_request("Cannot cancel a completed or already cancelled match".to_string()));
         }
 
         let updated_match = sqlx::query_as!(
@@ -1617,7 +1602,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         tracing::info!("Match {} cancelled. Reason: {:?}", match_id, reason);
         Ok(updated_match)
@@ -1637,7 +1622,7 @@ impl MatchService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         let rows_affected = result.rows_affected();
         if rows_affected > 0 {
@@ -1656,8 +1641,8 @@ impl MatchService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Dispute not found".to_string()))
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Dispute not found".to_string()))
     }
 
     /// Get all disputes for a match
@@ -1669,7 +1654,7 @@ impl MatchService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))
+        .map_err(|e| ApiError::database_error(e))
     }
 
     /// Get pending disputes for admin review
@@ -1694,7 +1679,7 @@ impl MatchService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         let total = sqlx::query!(
             "SELECT COUNT(*) as count FROM match_disputes WHERE status = $1",
@@ -1702,7 +1687,7 @@ impl MatchService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 

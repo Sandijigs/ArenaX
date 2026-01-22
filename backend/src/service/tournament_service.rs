@@ -1,29 +1,28 @@
-use crate::models::tournament::*;
-use crate::models::user::User;
-use crate::models::wallet::*;
-use crate::models::stellar::*;
+use crate::models::*;
 use crate::db::DbPool;
 use crate::api_error::ApiError;
-use crate::realtime::{RedisClient, TournamentEvent, GlobalEvent};
 use sqlx::Row;
 use uuid::Uuid;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
+use std::sync::Arc;
+use redis::Client as RedisClient;
+use serde::{Serialize, Deserialize};
 
 pub struct TournamentService {
     db_pool: DbPool,
-    redis_client: Option<RedisClient>,
+    redis_client: Option<Arc<RedisClient>>,
 }
 
 impl TournamentService {
     pub fn new(db_pool: DbPool) -> Self {
-        Self { 
+        Self {
             db_pool,
             redis_client: None,
         }
     }
 
-    pub fn with_redis(mut self, redis_client: RedisClient) -> Self {
+    pub fn with_redis(mut self, redis_client: Arc<RedisClient>) -> Self {
         self.redis_client = Some(redis_client);
         self
     }
@@ -71,25 +70,27 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Create prize pool record
         self.create_prize_pool(&tournament.id, &request.entry_fee_currency).await?;
 
         // Publish tournament created event
-        self.publish_tournament_event(TournamentEvent::created(
-            tournament.id,
-            tournament.name.clone(),
-            tournament.game.clone(),
-            tournament.max_participants,
-        )).await?;
+        self.publish_tournament_event(serde_json::json!({
+            "type": "created",
+            "tournament_id": tournament.id,
+            "name": tournament.name.clone(),
+            "game": tournament.game.clone(),
+            "max_participants": tournament.max_participants,
+        })).await?;
 
         // Publish global event
-        self.publish_global_event(GlobalEvent::tournament_created(
-            tournament.id,
-            tournament.name.clone(),
-            tournament.game.clone(),
-        )).await?;
+        self.publish_global_event(serde_json::json!({
+            "type": "tournament_created",
+            "tournament_id": tournament.id,
+            "name": tournament.name.clone(),
+            "game": tournament.game.clone(),
+        })).await?;
 
         Ok(tournament)
     }
@@ -154,7 +155,7 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Get total count
         let total = sqlx::query!(
@@ -169,7 +170,7 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -234,8 +235,8 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Tournament not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Tournament not found"))?;
 
         let is_participant = if let Some(uid) = user_id {
             self.is_user_participant(uid, tournament_id).await.unwrap_or(false)
@@ -286,7 +287,7 @@ impl TournamentService {
 
         // Check if user is already a participant
         if self.is_user_participant(user_id, tournament_id).await? {
-            return Err(ApiError::BadRequest("User is already a participant".to_string()));
+            return Err(ApiError::bad_request("User is already a participant"));
         }
 
         // Process payment
@@ -311,7 +312,7 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Update prize pool
         self.update_prize_pool(tournament_id, tournament.entry_fee).await?;
@@ -323,12 +324,13 @@ impl TournamentService {
         let username = self.get_user_username(user_id).await.unwrap_or_else(|| "Unknown".to_string());
 
         // Publish participant joined event
-        self.publish_tournament_event(TournamentEvent::participant_joined(
-            tournament_id,
-            user_id,
-            username,
-            self.get_participant_count(tournament_id).await?,
-        )).await?;
+        self.publish_tournament_event(serde_json::json!({
+            "type": "participant_joined",
+            "tournament_id": tournament_id,
+            "user_id": user_id,
+            "username": username,
+            "participant_count": self.get_participant_count(tournament_id).await?,
+        })).await?;
 
         Ok(participant)
     }
@@ -353,7 +355,7 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Handle status-specific logic
         match new_status {
@@ -367,11 +369,13 @@ impl TournamentService {
         }
 
         // Publish status change event
-        self.publish_tournament_event(TournamentEvent::status_changed(
-            tournament_id,
-            self.get_tournament_by_id(tournament_id).await?.status,
-            new_status,
-        )).await?;
+        let old_status = self.get_tournament_by_id(tournament_id).await?.status;
+        self.publish_tournament_event(serde_json::json!({
+            "type": "status_changed",
+            "tournament_id": tournament_id,
+            "old_status": old_status,
+            "new_status": new_status,
+        })).await?;
 
         Ok(tournament)
     }
@@ -380,23 +384,23 @@ impl TournamentService {
 
     async fn validate_tournament_creation(&self, request: &CreateTournamentRequest) -> Result<(), ApiError> {
         if request.name.is_empty() {
-            return Err(ApiError::BadRequest("Tournament name is required".to_string()));
+            return Err(ApiError::bad_request("Tournament name is required"));
         }
 
         if request.max_participants < 2 {
-            return Err(ApiError::BadRequest("Tournament must have at least 2 participants".to_string()));
+            return Err(ApiError::bad_request("Tournament must have at least 2 participants"));
         }
 
         if request.entry_fee < 0 {
-            return Err(ApiError::BadRequest("Entry fee cannot be negative".to_string()));
+            return Err(ApiError::bad_request("Entry fee cannot be negative"));
         }
 
         if request.start_time <= Utc::now() {
-            return Err(ApiError::BadRequest("Start time must be in the future".to_string()));
+            return Err(ApiError::bad_request("Start time must be in the future"));
         }
 
         if request.registration_deadline >= request.start_time {
-            return Err(ApiError::BadRequest("Registration deadline must be before start time".to_string()));
+            return Err(ApiError::bad_request("Registration deadline must be before start time"));
         }
 
         Ok(())
@@ -404,24 +408,24 @@ impl TournamentService {
 
     async fn validate_tournament_join(&self, tournament: &Tournament, user_id: Uuid) -> Result<(), ApiError> {
         if tournament.status != TournamentStatus::RegistrationOpen {
-            return Err(ApiError::BadRequest("Tournament is not accepting registrations".to_string()));
+            return Err(ApiError::bad_request("Tournament is not accepting registrations"));
         }
 
         if Utc::now() > tournament.registration_deadline {
-            return Err(ApiError::BadRequest("Registration deadline has passed".to_string()));
+            return Err(ApiError::bad_request("Registration deadline has passed"));
         }
 
         // Check participant count
         let current_count = self.get_participant_count(tournament.id).await?;
         if current_count >= tournament.max_participants {
-            return Err(ApiError::BadRequest("Tournament is full".to_string()));
+            return Err(ApiError::bad_request("Tournament is full"));
         }
 
         // Check skill level requirements
         if let (Some(min_skill), Some(max_skill)) = (tournament.min_skill_level, tournament.max_skill_level) {
             let user_elo = self.get_user_elo(user_id, &tournament.game).await?;
             if user_elo < min_skill || user_elo > max_skill {
-                return Err(ApiError::BadRequest("User skill level does not meet tournament requirements".to_string()));
+                return Err(ApiError::bad_request("User skill level does not meet tournament requirements"));
             }
         }
 
@@ -444,7 +448,7 @@ impl TournamentService {
                 self.process_arenax_token_payment(user_id, tournament).await?;
             }
             _ => {
-                return Err(ApiError::BadRequest("Invalid payment method".to_string()));
+                return Err(ApiError::bad_request("Invalid payment method"));
             }
         }
 
@@ -458,7 +462,7 @@ impl TournamentService {
         payment_reference: &Option<String>,
     ) -> Result<(), ApiError> {
         if payment_reference.is_none() {
-            return Err(ApiError::BadRequest("Payment reference is required for fiat payments".to_string()));
+            return Err(ApiError::bad_request("Payment reference is required for fiat payments"));
         }
 
         let reference = payment_reference.as_ref().unwrap();
@@ -467,7 +471,7 @@ impl TournamentService {
         let payment_verified = self.verify_payment_with_provider(reference, tournament.entry_fee).await?;
         
         if !payment_verified {
-            return Err(ApiError::BadRequest("Payment verification failed".to_string()));
+            return Err(ApiError::bad_request("Payment verification failed"));
         }
 
         // Update user wallet balance
@@ -507,7 +511,7 @@ impl TournamentService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -521,7 +525,7 @@ impl TournamentService {
         let wallet = self.get_user_wallet(user_id).await?;
         
         if wallet.balance_arenax_tokens < tournament.entry_fee {
-            return Err(ApiError::BadRequest("Insufficient ArenaX token balance".to_string()));
+            return Err(ApiError::bad_request("Insufficient ArenaX token balance"));
         }
 
         // Deduct tokens from user's wallet
@@ -563,7 +567,7 @@ impl TournamentService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -581,7 +585,7 @@ impl TournamentService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -603,7 +607,7 @@ impl TournamentService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -632,7 +636,7 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Get tournament details
         let tournament = self.get_tournament_by_id(tournament_id).await?;
@@ -663,7 +667,7 @@ impl TournamentService {
     ) -> Result<(), ApiError> {
         let participant_count = participants.len();
         if participant_count < 2 {
-            return Err(ApiError::BadRequest("Not enough participants for bracket".to_string()));
+            return Err(ApiError::bad_request("Not enough participants for bracket"));
         }
 
         // Calculate number of rounds needed
@@ -689,7 +693,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
 
             // Create matches for this round
             let matches_in_round = if round_num == 1 {
@@ -723,7 +727,7 @@ impl TournamentService {
                 )
                 .execute(&self.db_pool)
                 .await
-                .map_err(|e| ApiError::DatabaseError(e))?;
+                .map_err(|e| ApiError::database_error(e))?;
             }
         }
 
@@ -741,8 +745,8 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Tournament not found".to_string()))
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Tournament not found".to_string()))
     }
 
     async fn is_user_participant(&self, user_id: Uuid, tournament_id: Uuid) -> Result<bool, ApiError> {
@@ -753,7 +757,7 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -768,8 +772,8 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Participant not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Participant not found"))?;
 
         Ok(participant.status.into())
     }
@@ -813,7 +817,7 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
+        .map_err(|e| ApiError::database_error(e))?
         .count
         .unwrap_or(0);
 
@@ -828,7 +832,7 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(elo_record.map(|r| r.current_rating).unwrap_or(1200)) // Default Elo rating
     }
@@ -841,8 +845,8 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Wallet not found".to_string()))
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Wallet not found"))
     }
 
     async fn deduct_arenax_tokens(&self, user_id: Uuid, amount: i64) -> Result<(), ApiError> {
@@ -853,7 +857,7 @@ impl TournamentService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -887,7 +891,7 @@ impl TournamentService {
         )
         .execute(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(())
     }
@@ -927,7 +931,7 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Calculate rankings based on tournament type
         let tournament = self.get_tournament_by_id(tournament_id).await?;
@@ -958,8 +962,8 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("Prize pool not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("Prize pool not found"))?;
 
         // Get final rankings
         let participants = sqlx::query_as!(
@@ -969,11 +973,11 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Parse distribution percentages
         let percentages: Vec<f64> = serde_json::from_str(&prize_pool.distribution_percentages)
-            .map_err(|e| ApiError::InternalServerError(format!("Invalid distribution percentages: {}", e)))?;
+            .map_err(|e| ApiError::internal_error(format!("Invalid distribution percentages: {}", e)))?;
 
         // Distribute prizes
         for (index, participant) in participants.iter().enumerate() {
@@ -990,7 +994,7 @@ impl TournamentService {
                 )
                 .execute(&self.db_pool)
                 .await
-                .map_err(|e| ApiError::DatabaseError(e))?;
+                .map_err(|e| ApiError::database_error(e))?;
 
                 // TODO: In a real implementation, initiate Stellar transaction to send prize
                 // For now, we'll just record the prize amount
@@ -1005,7 +1009,7 @@ impl TournamentService {
     async fn generate_double_elimination_bracket(&self, tournament_id: Uuid, participants: Vec<TournamentParticipant>) -> Result<(), ApiError> {
         let participant_count = participants.len();
         if participant_count < 2 {
-            return Err(ApiError::BadRequest("Not enough participants for bracket".to_string()));
+            return Err(ApiError::bad_request("Not enough participants for bracket"));
         }
 
         // Calculate number of rounds needed
@@ -1031,7 +1035,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
 
             let matches_in_round = participant_count / 2_i32.pow(round_num as u32) as usize;
             for match_num in 1..=matches_in_round {
@@ -1059,7 +1063,7 @@ impl TournamentService {
                 )
                 .execute(&self.db_pool)
                 .await
-                .map_err(|e| ApiError::DatabaseError(e))?;
+                .map_err(|e| ApiError::database_error(e))?;
             }
         }
 
@@ -1071,7 +1075,7 @@ impl TournamentService {
     async fn generate_round_robin_bracket(&self, tournament_id: Uuid, participants: Vec<TournamentParticipant>) -> Result<(), ApiError> {
         let participant_count = participants.len();
         if participant_count < 2 {
-            return Err(ApiError::BadRequest("Not enough participants for bracket".to_string()));
+            return Err(ApiError::bad_request("Not enough participants for bracket"));
         }
 
         // Create a round for all matches
@@ -1093,7 +1097,7 @@ impl TournamentService {
         )
         .fetch_one(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Generate round robin pairings
         let mut match_number = 1;
@@ -1120,7 +1124,7 @@ impl TournamentService {
                 )
                 .execute(&self.db_pool)
                 .await
-                .map_err(|e| ApiError::DatabaseError(e))?;
+                .map_err(|e| ApiError::database_error(e))?;
 
                 match_number += 1;
             }
@@ -1133,7 +1137,7 @@ impl TournamentService {
     async fn generate_swiss_bracket(&self, tournament_id: Uuid, participants: Vec<TournamentParticipant>) -> Result<(), ApiError> {
         let participant_count = participants.len();
         if participant_count < 2 {
-            return Err(ApiError::BadRequest("Not enough participants for bracket".to_string()));
+            return Err(ApiError::bad_request("Not enough participants for bracket"));
         }
 
         // For Swiss tournaments, we'll generate Round 1 with simple pairings
@@ -1159,7 +1163,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
 
             // For round 1, use simple seed-based pairings
             if round_num == 1 {
@@ -1189,7 +1193,7 @@ impl TournamentService {
                     )
                     .execute(&self.db_pool)
                     .await
-                    .map_err(|e| ApiError::DatabaseError(e))?;
+                    .map_err(|e| ApiError::database_error(e))?;
                 }
             }
             // Subsequent Swiss rounds would be pairing based on standings and strength of schedule
@@ -1215,7 +1219,7 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         let mut rankings = Vec::new();
         let mut current_rank = 1;
@@ -1246,7 +1250,7 @@ impl TournamentService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         }
 
         Ok(())
@@ -1268,7 +1272,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?
+            .map_err(|e| ApiError::database_error(e))?
             .count
             .unwrap_or(0);
 
@@ -1285,7 +1289,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?
+            .map_err(|e| ApiError::database_error(e))?
             .count
             .unwrap_or(0);
 
@@ -1310,7 +1314,7 @@ impl TournamentService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         }
 
         Ok(())
@@ -1332,7 +1336,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?
+            .map_err(|e| ApiError::database_error(e))?
             .count
             .unwrap_or(0);
 
@@ -1348,7 +1352,7 @@ impl TournamentService {
             )
             .fetch_one(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?
+            .map_err(|e| ApiError::database_error(e))?
             .count
             .unwrap_or(0);
 
@@ -1371,26 +1375,23 @@ impl TournamentService {
             )
             .execute(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
         }
 
         Ok(())
     }
 
     // Real-time event publishing methods
-    async fn publish_tournament_event(&self, event: TournamentEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_tournament_event(event.tournament_id, &event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish tournament event: {}", e)))?;
-        }
+    // TODO: Implement proper realtime module with event types
+    async fn publish_tournament_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time tournament event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
-    async fn publish_global_event(&self, event: GlobalEvent) -> Result<(), ApiError> {
-        if let Some(ref redis_client) = self.redis_client {
-            redis_client.publish_global_event(&event).await
-                .map_err(|e| ApiError::InternalServerError(format!("Failed to publish global event: {}", e)))?;
-        }
+    async fn publish_global_event(&self, _event_data: serde_json::Value) -> Result<(), ApiError> {
+        // Placeholder for real-time global event publishing
+        // Will be implemented when realtime module is added
         Ok(())
     }
 
@@ -1403,7 +1404,7 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         Ok(participants)
     }
@@ -1418,7 +1419,7 @@ impl TournamentService {
         )
         .fetch_all(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?;
+        .map_err(|e| ApiError::database_error(e))?;
 
         // Get matches for each round
         let mut bracket_rounds = Vec::new();
@@ -1430,7 +1431,7 @@ impl TournamentService {
             )
             .fetch_all(&self.db_pool)
             .await
-            .map_err(|e| ApiError::DatabaseError(e))?;
+            .map_err(|e| ApiError::database_error(e))?;
 
             bracket_rounds.push(BracketRound {
                 round_id: round.id,
@@ -1463,8 +1464,8 @@ impl TournamentService {
         )
         .fetch_optional(&self.db_pool)
         .await
-        .map_err(|e| ApiError::DatabaseError(e))?
-        .ok_or(ApiError::NotFound("User not found".to_string()))?;
+        .map_err(|e| ApiError::database_error(e))?
+        .ok_or(ApiError::not_found("User not found"))?;
 
         Ok(user.username)
     }
